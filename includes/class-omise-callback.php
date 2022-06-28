@@ -92,6 +92,8 @@ class Omise_Callback {
 			)
 		);
 
+    // TODO if its a subscription order, then create a recurring charge with same customer and card
+
 		WC()->cart->empty_cart();
 		$this->order->update_meta_data( 'is_omise_payment_resolved', 'yes' );
 		$this->order->save();

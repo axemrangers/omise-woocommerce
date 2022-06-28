@@ -29,7 +29,7 @@
 
 			<div class="clear"></div>
 
-			<?php if ( $viewData['user_logged_in'] ) : ?>
+			<?php if ( !$viewData['has_subscription_product'] && $viewData['user_logged_in'] ) : ?>
 				<p class="omise-remember-card">
 					<input type="checkbox" name="omise_save_customer_card" id="omise_save_customer_card" />
 					<label for="omise_save_customer_card" class="inline">

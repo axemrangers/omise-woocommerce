@@ -95,6 +95,7 @@ class Omise_Event_Charge_Complete extends Omise_Event {
 				break;
 
 			case 'successful':
+        // TODO if its a subscription order, then create a recurring charge with same customer and card
 				if ( $this->order->has_status( 'processing' ) ) {
 					return;
 				}

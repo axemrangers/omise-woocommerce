@@ -202,6 +202,8 @@ abstract class Omise_Payment extends WC_Payment_Gateway {
 		$this->order->add_meta_data( 'is_omise_payment_resolved', 'no', true );
 		$this->order->save();
 
+    //TODO check if subscriptions is in order, different charge?
+
 		try {
 			$charge = $this->charge( $order_id, $this->order );
 		} catch ( Exception $e ) {
@@ -594,5 +596,120 @@ abstract class Omise_Payment extends WC_Payment_Gateway {
 	private function delete_capture_metadata() {
 		$this->order()->delete_meta_data( 'is_awaiting_capture');
 		$this->order()->save();
+	}
+
+	/**
+	 * Checks if this is a product page or content contains a product_page shortcode.
+	 *
+	 * @since 5.2.0
+	 * @return boolean
+	 */
+	public function is_product() {
+		return is_product() || wc_post_content_has_shortcode( 'product_page' );
+	}
+
+	/**
+	 * Get product from product page or product_page shortcode.
+	 *
+	 * @since  4.21.1
+	 * @return WC_Product Product object.
+	 */
+	public function get_product() {
+		global $post;
+
+		if ( is_product() ) {
+			return wc_get_product( $post->ID );
+		} elseif ( wc_post_content_has_shortcode( 'product_page' ) ) {
+			// Get id from product_page shortcode.
+			preg_match( '/\[product_page id="(?<id>\d+)"\]/', $post->post_content, $shortcode_match );
+
+			if ( ! isset( $shortcode_match['id'] ) ) {
+				return false;
+			}
+
+			return wc_get_product( $shortcode_match['id'] );
+		}
+
+		return false;
+	}
+
+  /**
+   * Checks if order has a subscription
+   * 
+   * @since 4.21.1
+   * @return boolean
+   */
+  public function is_subscription_order(){
+    if ( ! class_exists( 'WC_Subscriptions_Product' ) ) {
+			return false;
+		}
+
+    return  ($this->order() !== null) ? wcs_order_contains_subscription($this->order()) : false;
+
+  }
+
+	/**
+	 * Checks whether cart contains a subscription product or this is a subscription product page.
+	 *
+	 * @since  4.21.1
+	 * @return boolean
+	 */
+	public function has_subscription_product() {
+		if ( ! class_exists( 'WC_Subscriptions_Product' ) ) {
+			return false;
+		}
+
+		if ( $this->is_product() ) {
+			$product = $this->get_product();
+			if ( WC_Subscriptions_Product::is_subscription( $product ) ) {
+				return true;
+			}
+		} elseif ( is_cart() || is_checkout() ) {
+			foreach ( WC()->cart->get_cart() as $cart_item_key => $cart_item ) {
+				$_product = apply_filters( 'woocommerce_cart_item_product', $cart_item['data'], $cart_item, $cart_item_key );
+				if ( WC_Subscriptions_Product::is_subscription( $_product ) ) {
+					return true;
+				}
+			}
+		} elseif ( $this->order() !== null ) {
+      return wcs_order_contains_subscription($this->order());
+    }
+
+		return false;
+	}
+
+  /**
+	 * Checks whether authentication is required for checkout (required for subscriptions).
+	 *
+	 * @since  4.21.1
+	 * @return bool
+	 */
+	public function is_authentication_required() {
+		// If guest checkout is disabled and account creation upon checkout is not possible, authentication is required.
+		if ( 'no' === get_option( 'woocommerce_enable_guest_checkout', 'yes' ) && ! $this->is_account_creation_possible() ) {
+			return true;
+		}
+		// If cart contains subscription and account creation upon checkout is not posible, authentication is required.
+		if ( $this->has_subscription_product() && ! $this->is_account_creation_possible() ) {
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Checks whether account creation is possible upon checkout.
+	 *
+	 * @since  4.21.1
+	 * @return bool
+	 */
+	public function is_account_creation_possible() {
+		// If automatically generate username/password are disabled, the Payment Request API
+		// can't include any of those fields, so account creation is not possible.
+		return (
+			'yes' === get_option( 'woocommerce_enable_signup_and_login_from_checkout', 'no' ) &&
+			'yes' === get_option( 'woocommerce_registration_generate_username', 'yes' ) &&
+			'yes' === get_option( 'woocommerce_registration_generate_password', 'yes' )
+		);
 	}
 }

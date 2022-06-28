@@ -24,8 +24,12 @@ abstract class Omise_Payment_Base_Card extends Omise_Payment {
 		$user              = $order->get_user();
 		$omise_customer_id = $this->is_test() ? $user->test_omise_customer_id : $user->live_omise_customer_id;
 
+    if ( $this->is_subscription_order() && ( $user === null)) {
+			throw new Exception( __( 'A user is required for subscriptions.', 'omise' ) );
+    }
+
 		// Saving card.
-		if ( isset( $_POST['omise_save_customer_card'] ) && empty( $card_id ) ) {
+		if ( (isset( $_POST['omise_save_customer_card'] ) || $this->is_subscription_order() ) && empty( $card_id ) ) {
 			if ( empty( $token ) ) {
 				throw new Exception( __( 'Unable to process the card. Please make sure that the information is correct, or contact our support team if you have any questions.', 'omise' ) );
 			}
@@ -86,6 +90,8 @@ abstract class Omise_Payment_Base_Card extends Omise_Payment {
 			}
 		}
 
+
+
 		$success    = false;
 		$return_uri = add_query_arg(
 			array(
@@ -94,8 +100,16 @@ abstract class Omise_Payment_Base_Card extends Omise_Payment {
 			),
 			home_url()
 		);
+
+    $amount_to_charge = Omise_Money::to_subunit( $order->get_total(), $order->get_currency() );
+ 
+    if ( $this->is_subscription_order() ) {
+      // TODO check if this requires change.
+      $amount_to_charge = Omise_Money::to_subunit( $order->get_total(), $order->get_currency() );
+    }
+
 		$data    = array(
-			'amount'      => Omise_Money::to_subunit( $order->get_total(), $order->get_currency() ),
+			'amount'      => $amount_to_charge,
 			'currency'    => $order->get_currency(),
 			'description' => apply_filters( 'omise_charge_params_description', 'WooCommerce Order id ' . $order_id, $order ),
 			'return_uri'  => $return_uri
@@ -200,6 +214,47 @@ abstract class Omise_Payment_Base_Card extends Omise_Payment {
 		if ( ! $success ) {
 			return $this->payment_failed( __( 'Note that your payment may have already been processed. Please contact our support team if you have any questions.', 'omise' ) );
 		}
+
+    // Non 3-D Secure payment for subscriptions 
+    if ( $this->is_subscription_order() ) {
+
+      $user              = $order->get_user();
+      $omise_customer_id = $this->is_test() ? $user->test_omise_customer_id : $user->live_omise_customer_id;
+
+      $scheduler = Omise_Charge::schedule( array(
+        'customer'    => $omise_customer_id,
+        'card'        => $charge['card']['id'],
+        'amount'      => WC_Subscriptions_Order::get_recurring_total( $order ),
+        'description' => 'Membership fee',
+        'metadata'    => array(
+          'order_id' => $order_id
+        ) 
+      ));
+
+      $formatted_start_date = date("Y-m-d", WC_Subscriptions_Order::get_next_payment_timestamp( $order ));
+      $formatted_end_date = date("Y-m-d", WC_Subscriptions_Order::get_last_payment_date( $order )); 
+      $scheduler->startDate($formatted_start_date)
+                ->endDate($formatted_end_date);
+
+      $subscription_period = WC_Subscriptions_Order::get_subscription_period( $order );
+
+      switch( WC_Subscriptions_Order::get_subscription_period( $order ) ){
+        case 'year':
+          $day_of_month = intval(date("d"));
+          $scheduler->every(WC_Subscriptions_Order::get_subscription_interval( $order ) * 12)
+                    ->months($day_of_month);
+        case 'week':
+          $day_of_week = strtolower(date("l"));
+          $scheduler->every(WC_Subscriptions_Order::get_subscription_interval( $order ))
+                    ->weeks($day_of_week);
+        default: // 'month'
+          $day_of_month = intval(date("d"));
+          $scheduler->every(WC_Subscriptions_Order::get_subscription_interval( $order ))
+                    ->months($day_of_month);
+      }
+
+      $schedule = $scheduler->start();
+    }
 
 		// Remove cart
 		WC()->cart->empty_cart();

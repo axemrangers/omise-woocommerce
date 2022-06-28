@@ -120,9 +120,16 @@ class Omise_Payment_Creditcard extends Omise_Payment_Base_Card {
 	/**
 	 * @see WC_Payment_Gateway::payment_fields()
 	 * @see woocommerce/includes/abstracts/abstract-wc-payment-gateway.php
+   *  
 	 */
 	public function payment_fields() {
 		parent::payment_fields();
+
+    if ( $this->has_subscription_product()) {
+			$viewData['has_subscription_product'] = true;
+    } else {
+			$viewData['has_subscription_product'] = false;
+    }
 
 		if ( is_user_logged_in() ) {
 			$viewData['user_logged_in'] = true;
